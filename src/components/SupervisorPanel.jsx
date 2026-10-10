@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { ShieldCheck } from 'lucide-react';
 import { actorName, SUPERVISOR } from '../data/seed.js';
 import { RULES } from '../engine/engine.js';
+import { rankConflicts } from '../engine/decision.js';
+import AiSuitability, { ImpactBreakdown } from './AiSuitability.jsx';
 import { formatIST } from '../lib/format.js';
 import { Card, StatusBadge, OutcomeBadge } from './ui.jsx';
 
@@ -63,12 +65,22 @@ function Explanation({ c, central }) {
   );
 }
 
-function ConflictCard({ c, central, onResolve, busy }) {
+function ConflictCard({ c, central, onResolve, busy, impact, rank, aiStatus }) {
   const opts = optionsFor(c, central);
   const [choice, setChoice] = useState('');
   const [reason, setReason] = useState('');
   const [error, setError] = useState(null);
+  const [aiPick, setAiPick] = useState(null); // { choice, percent } once an AI estimate pre-filled the form
   const label = { STATUS_CONFLICT: 'Status conflict', PARTS_OVERLAP: 'Overlapping parts logs', INVENTORY_SHORTAGE: 'Inventory shortage' }[c.type];
+
+  // Pre-fills only; the supervisor still edits the reason and clicks Resolve. The AI note is kept
+  // in the reason so the audit trail records that the decision was AI-assisted.
+  const adoptAi = (p, data) => {
+    if (opts.find(o => o.value === p.engineChoice)?.disabled) return;
+    setChoice(p.engineChoice);
+    setAiPick({ choice: p.engineChoice, percent: p.suitabilityPercent });
+    setReason(r => r.trim() ? r : `AI-assisted (${data.model}, ${p.suitabilityPercent}% est. suitability, input ${data.conflictVersion}): ${p.reason}`);
+  };
 
   const submit = async () => {
     setError(null);
@@ -85,13 +97,25 @@ function ConflictCard({ c, central, onResolve, busy }) {
         <span className="text-sm font-semibold text-rose-800">{c.id} · {label} · {c.ticketId}</span>
         <code className="text-[11px] text-indigo-700">{c.ruleId}</code>
       </div>
+      <ImpactBreakdown impact={impact} rank={rank} />
       <Explanation c={c} central={central} />
+      <AiSuitability
+        key={`${c.id}-${central.tickets[c.ticketId].version}-${c.candidates?.length ?? 0}`}
+        conflict={c}
+        central={central}
+        aiStatus={aiStatus}
+        adoptedChoice={choice}
+        onAdopt={adoptAi}
+      />
       <fieldset className="mt-3 space-y-1 text-xs">
         <legend className="mb-1 font-semibold text-slate-800">Decision</legend>
         {opts.map(o => (
           <label key={o.value} className={`flex items-start gap-1.5 ${o.disabled ? 'text-slate-400' : ''}`}>
             <input type="radio" name={c.id} value={o.value} checked={choice === o.value} disabled={o.disabled} onChange={() => setChoice(o.value)} className="mt-0.5" />
-            {o.label}
+            <span>
+              {o.label}
+              {aiPick?.choice === o.value && <span className="ml-1 rounded bg-indigo-50 px-1 text-[11px] font-medium text-indigo-700 ring-1 ring-indigo-200">AI {aiPick.percent}%</span>}
+            </span>
           </label>
         ))}
       </fieldset>
@@ -115,14 +139,14 @@ function ConflictCard({ c, central, onResolve, busy }) {
   );
 }
 
-export default function SupervisorPanel({ central, onResolve, busy }) {
-  const open = central.conflicts.filter(c => c.status === 'OPEN');
+export default function SupervisorPanel({ central, onResolve, busy, aiStatus }) {
+  const open = rankConflicts(central);
   const resolved = central.conflicts.filter(c => c.status === 'RESOLVED');
   return (
-    <Card title={`Supervisor review — ${SUPERVISOR.name}`} subtitle={`${open.length} open · ${resolved.length} resolved · the engine never guesses; these need a human decision`}>
+    <Card title={`Supervisor review — ${SUPERVISOR.name}`} subtitle={`${open.length} open · ${resolved.length} resolved · ranked by deterministic impact score; these need a human decision`}>
       {open.length === 0 && <p className="text-sm text-slate-500">No open conflicts.</p>}
       <div className="space-y-3">
-        {open.map(c => <ConflictCard key={c.id} c={c} central={central} onResolve={onResolve} busy={busy} />)}
+        {open.map(({ conflict: c, impact }, i) => <ConflictCard key={c.id} c={c} central={central} onResolve={onResolve} busy={busy} impact={impact} rank={i + 1} aiStatus={aiStatus} />)}
       </div>
       {resolved.length > 0 && (
         <div className="mt-4 space-y-1.5">

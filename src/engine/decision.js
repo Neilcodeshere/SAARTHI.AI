@@ -161,6 +161,7 @@ export function permittedStrategies(c, central) {
   return out.map(s => ({ ...s, eligible: s.blockedBy.length === 0 }));
 }
 
+// oxlint-disable-next-line no-control-regex -- strips control characters from technician text
 const clip = (s, n = 400) => String(s ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, n);
 
 /**

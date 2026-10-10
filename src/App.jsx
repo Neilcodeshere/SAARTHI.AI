@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RotateCcw } from 'lucide-react';
-import { DEMO_SCRIPT, SCENARIO_TICKET_ID, SUPERVISOR } from './data/seed.js';
+import { RotateCcw, ShieldCheck, Sparkles, Wifi, WifiOff } from 'lucide-react';
+import { DEMO_SCRIPT, SCENARIO_TICKET_ID, SUPERVISOR, TECHNICIANS } from './data/seed.js';
 import { pull, queueOp, resolveConflict, syncDevice } from './engine/engine.js';
 import { DEVICE_IDS, loadAll, resetAll, save } from './services/store.js';
+import { getAiStatus } from './services/aiPredictions.js';
 import ServiceMap from './components/ServiceMap.jsx';
 import TechnicianPanel from './components/TechnicianPanel.jsx';
 import SupervisorPanel from './components/SupervisorPanel.jsx';
@@ -15,9 +16,12 @@ function newId() {
 export default function App() {
   const [state, setState] = useState(null); // { central, devices }
   const [selectedId, setSelectedId] = useState(SCENARIO_TICKET_ID);
+  const [tab, setTab] = useState('TECH-A'); // 'TECH-A' | 'TECH-B' | 'SUPERVISOR'
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [browserOnline, setBrowserOnline] = useState(navigator.onLine);
+  const [aiStatus, setAiStatus] = useState(null); // null = unknown / API server unreachable
+  useEffect(() => { getAiStatus().then(({ data }) => setAiStatus(data ?? null)); }, []);
   const stateRef = useRef(null);
 
   useEffect(() => {
@@ -89,6 +93,7 @@ export default function App() {
     stateRef.current = s;
     setState(s);
     setSelectedId(SCENARIO_TICKET_ID);
+    setTab('TECH-A');
   };
 
   if (!state) {
@@ -112,7 +117,15 @@ export default function App() {
             <span className={`rounded-full px-2.5 py-1 ring-1 ${browserOnline ? 'bg-slate-50 text-slate-700 ring-slate-200' : 'bg-rose-50 text-rose-800 ring-rose-200'}`}>
               Browser {browserOnline ? 'online' : 'offline'}: ticket workflow is fully local; only map tiles need internet
             </span>
-            {openCount > 0 && <span className="rounded-full bg-rose-600 px-2.5 py-1 font-medium text-white">{openCount} awaiting supervisor</span>}
+            <span title={aiStatus?.configured ? 'Groq estimates are advisory; the rule engine stays authoritative.' : aiStatus?.message || 'No AI API server (static build). The deterministic workflow is unaffected.'}
+              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 ring-1 ${aiStatus?.configured ? 'bg-indigo-50 text-indigo-800 ring-indigo-200' : 'bg-slate-50 text-slate-600 ring-slate-200'}`}>
+              <Sparkles size={12} /> {aiStatus?.configured ? `AI advisor: Groq · ${aiStatus.model}` : 'AI advisor off'}
+            </span>
+            {openCount > 0 && (
+              <button type="button" onClick={() => setTab('SUPERVISOR')} className="rounded-full bg-rose-600 px-2.5 py-1 font-medium text-white hover:bg-rose-700">
+                {openCount} awaiting supervisor →
+              </button>
+            )}
             <button type="button" onClick={handleReset} className="inline-flex items-center gap-1 rounded-md px-2.5 py-1 ring-1 ring-slate-300 hover:bg-slate-50">
               <RotateCcw size={13} /> Reset demo
             </button>
@@ -130,11 +143,35 @@ export default function App() {
         </div>
         <div className="lg:col-span-3"><InventoryPanel central={central} highlightAppliance={selected?.appliance} /></div>
 
-        {DEVICE_IDS.map(id => (
-          <div key={id} className="lg:col-span-6">
+        <div className="lg:col-span-12">
+          <div role="tablist" aria-label="Workspaces" className="flex flex-wrap gap-1 border-b border-slate-300">
+            {DEVICE_IDS.map(id => {
+              const d = devices[id];
+              return (
+                <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
+                  className={`-mb-px inline-flex items-center gap-2 rounded-t-lg border px-4 py-2 text-sm ${tab === id ? 'border-slate-300 border-b-white bg-white font-semibold text-slate-900' : 'border-transparent text-slate-600 hover:bg-white/60'}`}>
+                  {d.online ? <Wifi size={15} className="text-emerald-600" /> : <WifiOff size={15} className="text-slate-500" />}
+                  {TECHNICIANS[id].name} <span className="font-normal text-slate-500">· {TECHNICIANS[id].label}</span>
+                  {d.queue.length > 0 && <span className="rounded-full bg-amber-100 px-1.5 text-xs font-medium text-amber-800">{d.queue.length} queued</span>}
+                </button>
+              );
+            })}
+            <button type="button" role="tab" aria-selected={tab === 'SUPERVISOR'} onClick={() => setTab('SUPERVISOR')}
+              className={`-mb-px inline-flex items-center gap-2 rounded-t-lg border px-4 py-2 text-sm ${tab === 'SUPERVISOR' ? 'border-slate-300 border-b-white bg-white font-semibold text-slate-900' : 'border-transparent text-slate-600 hover:bg-white/60'}`}>
+              <ShieldCheck size={15} className="text-rose-600" />
+              {SUPERVISOR.name} <span className="font-normal text-slate-500">· {SUPERVISOR.label}</span>
+              {openCount > 0 && <span className="rounded-full bg-rose-600 px-1.5 text-xs font-medium text-white">{openCount} open</span>}
+            </button>
+          </div>
+        </div>
+
+        <div role="tabpanel" className="lg:col-span-7">
+          {tab === 'SUPERVISOR' ? (
+            <SupervisorPanel central={central} onResolve={handleResolve} busy={busy} aiStatus={aiStatus} />
+          ) : (
             <TechnicianPanel
-              key={`${id}-${selectedId}`}
-              device={devices[id]}
+              key={`${tab}-${selectedId}`}
+              device={devices[tab]}
               central={central}
               ticketId={selectedId}
               busy={busy}
@@ -143,11 +180,9 @@ export default function App() {
               onSync={handleSync}
               onSetDropAck={handleDropAck}
             />
-          </div>
-        ))}
-
-        <div className="lg:col-span-7"><SyncResults central={central} /></div>
-        <div className="lg:col-span-5"><SupervisorPanel central={central} onResolve={handleResolve} busy={busy} /></div>
+          )}
+        </div>
+        <div className="lg:col-span-5"><SyncResults central={central} /></div>
         <div className="lg:col-span-12"><AuditTimeline central={central} selectedId={selectedId} /></div>
       </main>
     </div>

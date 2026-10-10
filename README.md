@@ -11,12 +11,27 @@ A single-screen, offline-first field-service demo for a home-appliance repair op
 ```bash
 npm install
 npm run dev      # http://localhost:5173
-npm test         # engine tests (node:test)
+npm test         # engine + prediction-service tests (node:test)
 npm run lint
 npm run build
 ```
 
-No API keys, backend or paid services are needed. The ticket and sync workflow runs fully offline. Only the OpenStreetMap tiles need internet.
+No API keys, backend or paid services are needed for the core workflow. The ticket and sync workflow runs fully offline. Only the OpenStreetMap tiles need internet.
+
+### Optional: Groq AI advisor
+
+The supervisor panel can ask Groq to estimate how suitable each resolution option is for a conflict.
+
+```bash
+cp .env.example .env   # then set GROQ_API_KEY=gsk_... (from console.groq.com/keys)
+npm run dev            # restart after editing .env
+```
+
+- The key is read only by the Vite dev/preview server middleware (`server/`), never by the browser. `VITE_GROQ_*` variables are refused at startup.
+- The header shows **AI advisor: Groq · model** when configured, or **AI advisor off** otherwise.
+- In each conflict card, **Estimate options** sends the conflict to `POST /api/conflicts/:id/predictions`. The server rebuilds the evidence and permitted strategies itself, asks Groq for strict-schema JSON, rejects malformed or uncited answers, and forces hard-rule eligibility back on top of what the model said.
+- **Pre-fill decision below** selects the matching option and drafts an `AI-assisted (…)` reason. Nothing is submitted until the supervisor edits the reason and clicks Resolve, and the AI note goes into the audit trail with it.
+- Without a key, offline, or on a static `dist/` deploy, the AI section says it is unavailable and the deterministic review works as before.
 
 ## How it maps to the five deliverables
 
@@ -44,6 +59,9 @@ src/data/seed.js            demo dataset, status model, parts, Navi Mumbai coord
 src/engine/engine.js        deterministic engine (pure, UI-independent)
 src/engine/engine.test.js   scenario + edge-case tests
 src/services/store.js       IndexedDB persistence
+src/services/aiPredictions.js  browser client for the AI endpoints (no credentials)
+src/engine/decision.js      impact score, permitted strategies, evidence for the AI advisor
+server/                     Vite middleware: Groq prediction service (server-only key)
 src/components/*            dashboard panels (map, technicians, supervisor, audit)
 src/App.jsx                 single-page dashboard
 ```
