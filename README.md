@@ -1,14 +1,30 @@
 # SAARTHI.AI
 
-**Intelligent Field Operations & Conflict Resolution**: IPL Hackathon, Problem Statement 5 (Field Operations Conflict Resolver).
+Offline-first field-service app that reconciles conflicting updates from technicians when they reconnect. Built for the IPL Hackathon, Problem Statement 5 (Field Operations Conflict Resolver).
 
 A single-screen, offline-first field-service demo for a home-appliance repair operation in Navi Mumbai (ACs, washing machines, refrigerators, TVs, microwaves, water purifiers). Two technicians update the same ticket while offline. When they reconnect, a deterministic engine reconciles their updates without losing data, and anything it cannot decide safely goes to a supervisor.
 
 > All customers, technicians (Aarav Sharma, Priya Patil, Rahul Deshmukh), tickets and stock are **fictional demo data**. The "central server" is simulated inside the browser. Map markers are locality-level demo locations, not live GPS.
 
+## Why this is tricky
+
+Field technicians often work with no signal. If two of them update the same repair ticket offline, one marking it complete and the other waiting on a part, the usual "last write wins" sync silently throws one update away. Here every update is queued on the device, replayed when it reconnects, and checked against a small set of rules. Anything the rules can't settle safely goes to a supervisor with the evidence attached, instead of being guessed.
+
+The sync result doesn't depend on which device reconnects first, and there's a test for that.
+
+## Tech Stack
+
+- React 19 and Vite, Tailwind CSS 4
+- IndexedDB (via `idb`) for the offline queues and the simulated central state
+- Leaflet / react-leaflet with OpenStreetMap tiles
+- Groq API (optional), called from Vite server middleware
+- `node:test` for the engine and prediction-service tests, oxlint for linting
+
 ## Run
 
 ```bash
+git clone https://github.com/Neilcodeshere/SAARTHI.AI.git
+cd SAARTHI.AI
 npm install
 npm run dev      # http://localhost:5173
 npm test         # engine + prediction-service tests (node:test)
@@ -67,3 +83,9 @@ src/App.jsx                 single-page dashboard
 ```
 
 Map: Leaflet + react-leaflet with OpenStreetMap standard tiles (attribution shown). Respect the [OSM tile usage policy](https://operations.osmfoundation.org/policies/tiles/); tiles are not cached for offline use.
+
+## Team
+
+Built as a team for the IPL Hackathon. My teammate kanchann08a set up the first version and the technician role with location tracking; I rebuilt the app around the decision engine with the supervisor and technician panels and added the Groq advisor.
+
+Subhronil Chattoraj · GitHub: [Neilcodeshere](https://github.com/Neilcodeshere)
